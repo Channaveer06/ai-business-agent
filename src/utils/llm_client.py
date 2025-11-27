@@ -4,9 +4,9 @@
 LLM client abstraction.
 
 - FakeLLMClient: for offline testing, no real API.
-- RealLLMClient: skeleton for integrating a real LLM provider (Gemini, OpenAI, etc.)
+- RealLLMClient: uses Gemini (via google-generativeai) when configured.
 
-This design allows you to switch implementations without changing agent code.
+Agents (EmailAgent, MeetingAgent) can choose Fake or Real based on config.
 """
 
 import logging
@@ -17,10 +17,18 @@ from config import LLM_PROVIDER, LLM_API_KEY
 
 logger = logging.getLogger(__name__)
 
+# Try to import google.generativeai for Gemini, but don't crash if missing.
+try:
+    import google.generativeai as genai
+    _HAS_GEMINI = True
+except ImportError:
+    _HAS_GEMINI = False
+    genai = None  # type: ignore
+
 
 class FakeLLMClient:
     """
-    Very simple fake LLM for offline testing.
+    Simple fake LLM for offline testing.
 
     It does NOT generate real language, but:
     - Logs the prompt
@@ -44,47 +52,71 @@ class FakeLLMClient:
 
 class RealLLMClient:
     """
-    Skeleton for a real LLM client (e.g., Gemini, OpenAI).
+    Real LLM client using Gemini (google-generativeai).
 
-    For safety and to avoid dependency on external APIs, this class
-    is left as a placeholder. You can implement it using the official
-    SDK of your chosen provider (Gemini, OpenAI, etc.).
+    Reads:
+    - LLM_PROVIDER from config (should be 'gemini')
+    - LLM_API_KEY from config or passed explicitly
     """
 
-    def __init__(self, api_key: Optional[str] = None, provider: Optional[str] = None):
-        self.api_key = api_key or LLM_API_KEY
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        provider: Optional[str] = None,
+        model_name: str = "models/gemini-flash-latest",
+    ):
         self.provider = provider or LLM_PROVIDER
+        self.api_key = api_key or LLM_API_KEY
+        self.model_name = model_name
 
-        if self.api_key is None:
+        if self.provider != "gemini":
             raise ValueError(
-                "No API key provided for RealLLMClient. "
-                "Set LLM_API_KEY in your environment or .env file."
+                f"RealLLMClient currently only supports provider='gemini', "
+                f"but got provider='{self.provider}'"
             )
 
-        logger.info("Initialized RealLLMClient with provider=%s", self.provider)
+        if not self.api_key:
+            raise ValueError(
+                "No API key provided for RealLLMClient. "
+                "Set LLM_API_KEY in your .env or environment."
+            )
 
-        # NOTE:
-        # This is where you would initialize the real SDK client, e.g.:
-        #
-        # if self.provider == "gemini":
-        #     import google.generativeai as genai
-        #     genai.configure(api_key=self.api_key)
-        #     self.client = genai.GenerativeModel("gemini-1.5-pro")
-        #
-        # elif self.provider == "openai":
-        #     from openai import OpenAI
-        #     self.client = OpenAI(api_key=self.api_key)
-        #
-        # For this capstone, we leave it commented to avoid external dependencies.
+        if not _HAS_GEMINI:
+            raise ImportError(
+                "google-generativeai is not installed. "
+                "Install it with: pip install google-generativeai"
+            )
+
+        # Configure Gemini
+        genai.configure(api_key=self.api_key)
+        self.client = genai.GenerativeModel(self.model_name)
+
+        logger.info(
+            "Initialized RealLLMClient with provider=%s, model=%s",
+            self.provider,
+            self.model_name,
+        )
 
     def generate(self, prompt: str, max_tokens: int = 512) -> str:
         """
-        Call the underlying real LLM.
+        Call the underlying Gemini model.
 
-        This is a placeholder implementation; you must fill it based
-        on your chosen provider's SDK.
+        If anything goes wrong, we log and return an error message
+        instead of crashing the whole app.
         """
-        raise NotImplementedError(
-            "RealLLMClient.generate is not implemented. "
-            "Implement it using your LLM provider's SDK."
+        logger.info(
+            "RealLLMClient.generate called (first 120 chars of prompt): %s",
+            shorten(prompt, width=120, placeholder="..."),
         )
+
+        try:
+            response = self.client.generate_content(prompt)
+            # response.text is usually the main text output
+            text = getattr(response, "text", None)
+            if not text:
+                logger.warning("Gemini response had no 'text' attribute or was empty.")
+                return "[RealLLMClient] Empty response from Gemini."
+            return text
+        except Exception as e:
+            logger.exception("Error while calling Gemini LLM")
+            return f"[RealLLMClient] Error while calling LLM: {e}"
