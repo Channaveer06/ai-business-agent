@@ -1,0 +1,5 @@
+timestamp,task_type,output_length,score,notes
+2025-11-27T19:14:08.704487,EMAIL,220,0.8999999999999999,OK
+2025-11-27T20:13:38.980192,EMAIL,214,0.6,"Missing subject line; Missing greeting (e.g., 'Dear ...'); Missing closing signature (e.g., 'Regards', 'Thanks')"
+2025-11-27T20:14:11.356796,MEETING,214,0.5,Missing 'Meeting Summary' section title; Missing 'Action Items' section title; No numbered action items found
+2025-11-27T20:30:17.300028,EMAIL,216,0.6,"Missing subject line; Missing greeting (e.g., 'Dear ...'); Missing closing signature (e.g., 'Regards', 'Thanks')"
